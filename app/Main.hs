@@ -1,21 +1,45 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+
 module Main where
-import           Control.Applicative
+import           Control.Applicative     hiding ( optional )
+import           Data.Char
 import           Data.List               hiding ( (!!) )
 import           Data.Maybe
 import qualified Data.Set                      as S
 import           Prelude                 hiding ( (!!) )
+import           Text.ParserCombinators.ReadP
 import           Text.Printf
 
-main = mapM_ print $ filterUniqueOutputs $ allProgramOutputsWithFilter (\s -> ops s > 25)
+main = mapM_ print $ filterUniqueOutputs $ allProgramOutputsWithFilter
+  (\s -> ops s > 25)
 
 -- Program definition
 type Program = [ProgramNode]
+
 data ProgramNode = ProgramNode
   { on0 :: ProgramCommand
   , on1 :: ProgramCommand
   }
 instance Show ProgramNode where
   show (ProgramNode on0 on1) = printf "0⇒%s 1⇒%s" (show on0) (show on1)
+instance Read ProgramNode where
+  readsPrec _ = readP_to_S parseNode
+   where
+    parseNode = do
+      skipMany $ satisfy isSpace
+      on0 <- option (on0 newNode) (string "0⇒" <|> string "0=>" >> parseCmd)
+      skipMany $ satisfy isSpace
+      on1 <- option (on1 newNode) (string "1⇒" <|> string "1=>" >> parseCmd)
+      return ProgramNode { on0 = on0, on1 = on1 }
+    parseCmd = do
+      write <- (string "0" >>=> False) <|> (string "1" >>=> True)
+      move  <-
+        (string "←" <|> string "<-" >>=> L)
+          <|> (string "→" <|> string "->" >>=> R)
+      nextNode <-
+        (fmap (Just . read) $ many1 $ satisfy isDigit)
+          <|> (string "." >>=> Nothing)
+      return ProgramCommand { write = write, move = move, nextNode = nextNode }
 
 data ProgramCommand = ProgramCommand
   { write    :: Bool
@@ -30,6 +54,7 @@ data Direction = L | R
 instance Show Direction where
   show L = "←"
   show R = "→"
+
 
 -- Machine running
 data MachineState = MachineState
@@ -114,8 +139,7 @@ allProgramOutputs = allProgramOutputsWithFilter (const True)
 
 allProgramOutputsWithFilter
   :: (MachineState -> Bool) -> [(Program, MachineState)]
-allProgramOutputsWithFilter ft =
-  iterateBuffer ft [] allPrograms
+allProgramOutputsWithFilter ft = iterateBuffer ft [] allPrograms
 
 iterateBuffer
   :: (MachineState -> Bool)
@@ -155,6 +179,9 @@ bd True  = "1"
 takeUntilNot :: (a -> Bool) -> [a] -> [a]
 takeUntilNot _ []       = []
 takeUntilNot p (x : xs) = x : (if p x then takeUntilNot p xs else [])
+
+infixl 1 >>=>
+a >>=> b = a >> return b
 
 -- Taken from Prelude, except s/Int/Integer/
 (!!) :: [a] -> Integer -> a
